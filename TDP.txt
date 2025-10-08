@@ -1,6 +1,61 @@
-2024 elections lo TDP baari majority tho gelavabothuna TDP....
-apudu ee repo malli open chestha
 
+import requests
+import json
 
+# === 1️⃣ Replace these with your Xray credentials ===
+CLIENT_ID = "YOUR_CLIENT_ID"
+CLIENT_SECRET = "YOUR_CLIENT_SECRET"
+
+# === 2️⃣ Your Jira project key ===
+PROJECT_KEY = "YOUR_PROJECT_KEY"
+
+# === 3️⃣ Authenticate to Xray Cloud ===
+auth_url = "https://xray.cloud.getxray.app/api/v2/authenticate"
+auth_payload = {
+    "client_id": CLIENT_ID,
+    "client_secret": CLIENT_SECRET
+}
+
+auth_response = requests.post(auth_url, json=auth_payload)
+if auth_response.status_code != 200:
+    raise Exception(f"Authentication failed: {auth_response.text}")
+
+token = auth_response.json()
+print("✅ Authenticated successfully!")
+
+# === 4️⃣ Query to get Test issue IDs and types ===
+graphql_url = "https://xray.cloud.getxray.app/api/v2/graphql"
+
+query = {
+    "query": f"""
+    {{
+      getTests(jql: "project = {PROJECT_KEY} AND issuetype = Test", limit: 100) {{
+        results {{
+          issueId
+          jira(fields: ["issuetype"])
+        }}
+      }}
+    }}
+    """
+}
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(graphql_url, headers=headers, json=query)
+
+if response.status_code == 200:
+    data = response.json()
+    tests = data.get("data", {}).get("getTests", {}).get("results", [])
+
+    print(f"\n✅ Found {len(tests)} Test issues in project {PROJECT_KEY}\n")
+    for test in tests:
+        issue_id = test["issueId"]
+        issue_type = test["jira"]["issuetype"]
+        print(f"Issue ID: {issue_id} | Type: {issue_type}")
+else:
+    print("❌ Failed to fetch test issue types:", response.text)
 
 
