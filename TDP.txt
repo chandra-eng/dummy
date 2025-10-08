@@ -127,3 +127,108 @@ if response.status_code == 200:
 
 else:
     print("❌ Failed to fetch test details:", response.text)
+
+
+
+
+
+
+
+
+
+
+import requests
+import json
+import os
+
+# === 1️⃣ Replace these with your credentials ===
+CLIENT_ID = "YOUR_CLIENT_ID"
+CLIENT_SECRET = "YOUR_CLIENT_SECRET"
+
+# === 2️⃣ Replace with your Test issue ID ===
+TEST_ISSUE_ID = "YOUR_TEST_ISSUE_ID"  # e.g., "10045"
+
+# === 3️⃣ Directory where attachments will be saved ===
+DOWNLOAD_DIR = os.path.join(os.getcwd(), "attachments")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+# === 4️⃣ Authenticate to Xray Cloud ===
+auth_url = "https://xray.cloud.getxray.app/api/v2/authenticate"
+auth_payload = {
+    "client_id": CLIENT_ID,
+    "client_secret": CLIENT_SECRET
+}
+
+auth_response = requests.post(auth_url, json=auth_payload)
+if auth_response.status_code != 200:
+    raise Exception(f"Authentication failed: {auth_response.text}")
+
+token = auth_response.json()
+print("✅ Authenticated successfully!")
+
+# === 5️⃣ GraphQL query to get test details (with attachments) ===
+graphql_url = "https://xray.cloud.getxray.app/api/v2/graphql"
+
+query = {
+    "query": f"""
+    {{
+      getTest(issueId: "{TEST_ISSUE_ID}") {{
+        issueId
+        testType {{ name }}
+        jira(fields: ["key", "summary"])
+        steps {{
+          id
+          action
+          attachments {{
+            id
+            filename
+            downloadLink
+            mimeType
+          }}
+        }}
+      }}
+    }}
+    """
+}
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(graphql_url, headers=headers, json=query)
+
+if response.status_code != 200:
+    print("❌ Failed to fetch test details:", response.text)
+    exit()
+
+test_data = response.json().get("data", {}).get("getTest", {})
+steps = test_data.get("steps", [])
+issue_id = test_data.get("issueId")
+
+print(f"\n✅ Found {len(steps)} steps for Test Issue ID: {issue_id}")
+
+# === 6️⃣ Download all attachments ===
+for step_num, step in enumerate(steps, start=1):
+    attachments = step.get("attachments", [])
+    if not attachments:
+        continue
+
+    for att in attachments:
+        filename = att["filename"]
+        download_url = att["downloadLink"]
+        new_filename = f"{issue_id}_step_{step_num}_{filename}"
+        filepath = os.path.join(DOWNLOAD_DIR, new_filename)
+
+        # Download the attachment
+        print(f"⬇️  Downloading {filename} → {new_filename}")
+        file_response = requests.get(download_url, headers={"Authorization": f"Bearer {token}"})
+
+        if file_response.status_code == 200:
+            with open(filepath, "wb") as f:
+                f.write(file_response.content)
+            print(f"   ✅ Saved: {filepath}")
+        else:
+            print(f"   ❌ Failed to download {filename}: {file_response.status_code}")
+
+print("\n🎉 All attachments downloaded successfully!")
