@@ -232,3 +232,95 @@ for step_num, step in enumerate(steps, start=1):
             print(f"   ❌ Failed to download {filename}: {file_response.status_code}")
 
 print("\n🎉 All attachments downloaded successfully!")
+
+
+
+
+
+
+
+
+
+
+import requests
+import json
+import urllib3
+
+# Disable SSL warnings (optional)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# === Xray Cloud credentials ===
+CLIENT_ID = "YOUR_CLIENT_ID"
+CLIENT_SECRET = "YOUR_CLIENT_SECRET"
+PROJECT_KEY = "YOUR_PROJECT_KEY"
+
+# === Authenticate ===
+auth_url = "https://xray.cloud.getxray.app/api/v2/authenticate"
+auth_payload = {"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}
+auth_response = requests.post(auth_url, json=auth_payload)
+if auth_response.status_code != 200:
+    raise Exception(f"Authentication failed: {auth_response.text}")
+
+token = auth_response.json()
+headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+print("✅ Authenticated successfully!")
+
+# === Step 1: Get all Test Executions ===
+executions_url = f"https://xray.cloud.getxray.app/api/v2/testexecutions?projectKey={PROJECT_KEY}"
+exec_response = requests.get(executions_url, headers=headers, verify=False)
+
+if exec_response.status_code != 200:
+    raise Exception(f"Failed to fetch test executions: {exec_response.text}")
+
+executions = exec_response.json().get("testExecutions", [])
+print(f"✅ Found {len(executions)} test executions in project '{PROJECT_KEY}'")
+
+# === Step 2: For each execution, get linked tests and their statuses ===
+graphql_url = "https://xray.cloud.getxray.app/api/v2/graphql"
+
+for execution in executions:
+    exec_id = execution["id"]
+    exec_key = execution["key"]
+    exec_summary = execution.get("summary", "")
+    print(f"\n📘 Test Execution: {exec_key} — {exec_summary}")
+
+    # GraphQL query to get tests inside this execution
+    query = {
+        "query": f"""
+        {{
+          getTestExecution(issueId: "{exec_id}") {{
+            issueId
+            jira(fields: ["key", "summary"])
+            tests(limit: 50) {{
+              total
+              results {{
+                test {{
+                  issueId
+                  jira(fields: ["key", "summary"])
+                }}
+                status {  # Status of that test inside this execution
+                  name
+                }}
+              }}
+            }}
+          }}
+        }}
+        """
+    }
+
+    resp = requests.post(graphql_url, headers=headers, json=query, verify=False)
+    if resp.status_code != 200:
+        print(f"❌ Failed to fetch details for {exec_key}: {resp.text}")
+        continue
+
+    exec_data = resp.json().get("data", {}).get("getTestExecution", {})
+    tests_info = exec_data.get("tests", {}).get("results", [])
+
+    print(f"   🧩 Found {len(tests_info)} linked tests")
+
+    for t in tests_info:
+        test_key = t["test"]["jira"]["key"]
+        test_summary = t["test"]["jira"]["summary"]
+        test_status = t["status"]["name"]
+        print(f"      🔹 {test_key} — {test_summary} → Status: {test_status}")
